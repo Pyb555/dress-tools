@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 
-from app.routers import tryon, images
+from app.routers import tryon, images, history
 from app.utils.image_utils import ensure_dirs
 
 # 确保上传和结果目录存在
@@ -32,6 +32,7 @@ app.add_middleware(
 # 注册路由
 app.include_router(tryon.router, prefix="/api/tryon", tags=["试穿"])
 app.include_router(images.router, prefix="/api/images", tags=["图片"])
+app.include_router(history.router, prefix="/api/history", tags=["历史"])
 
 # 静态文件服务（上传图片和结果可访问）
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
