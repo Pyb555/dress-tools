@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { getImageUrl } from "../api/tryon";
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 interface HistoryItem {
   id: string;
   date: string;
@@ -42,7 +44,7 @@ export default function HistoryPanel({ refreshTrigger, onSelect }: Props) {
 
     // 尝试从服务端同步（静默失败）
     try {
-      const res = await fetch("http://localhost:8000/api/history/list?limit=20");
+      const res = await fetch(`${API_BASE}/api/history/list?limit=20`);
       if (res.ok) {
         const data = await res.json();
         if (data.items?.length > 0) {
@@ -61,7 +63,7 @@ export default function HistoryPanel({ refreshTrigger, onSelect }: Props) {
     setItems([]);
     clearLocalHistory();
     try {
-      await fetch("http://localhost:8000/api/history/clear", { method: "DELETE" });
+      await fetch(`${API_BASE}/api/history/clear`, { method: "DELETE" });
     } catch { /* ignore */ }
   };
 
@@ -71,7 +73,7 @@ export default function HistoryPanel({ refreshTrigger, onSelect }: Props) {
     setItems(updated);
     saveLocalHistory(updated);
     try {
-      await fetch(`http://localhost:8000/api/history/${id}`, { method: "DELETE" });
+      await fetch(`${API_BASE}/api/history/${id}`, { method: "DELETE" });
     } catch { /* ignore */ }
   };
 

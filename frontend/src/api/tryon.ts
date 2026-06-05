@@ -1,7 +1,8 @@
 /**
  * AI 试穿 API 封装
+ * 生产环境通过 VITE_API_URL 环境变量配置后端地址
  */
-const API_BASE = "http://localhost:8000/api";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export interface TryOnResponse {
   task_id: string;
@@ -25,7 +26,7 @@ export async function uploadImage(file: File): Promise<ImageUploadResponse> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch(`${API_BASE}/images/upload`, {
+  const res = await fetch(`${API_BASE}/api/images/upload`, {
     method: "POST",
     body: formData,
   });
@@ -46,7 +47,7 @@ export async function runTryOn(
   modelImage: string,
   category: string = "upper_body"
 ): Promise<TryOnResponse> {
-  const res = await fetch(`${API_BASE}/tryon/run`, {
+  const res = await fetch(`${API_BASE}/api/tryon/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -69,5 +70,5 @@ export async function runTryOn(
  */
 export function getImageUrl(path: string): string {
   if (path.startsWith("http")) return path;
-  return `http://localhost:8000${path}`;
+  return `${API_BASE}${path}`;
 }
