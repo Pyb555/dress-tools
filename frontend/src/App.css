@@ -1,0 +1,280 @@
+/* ============================================
+   AI 虚拟试穿 - 主样式
+   ============================================ */
+
+/* ---- Header ---- */
+.app-header {
+  text-align: center;
+  padding: 2rem 1rem 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  color: white;
+}
+
+.app-header .subtitle {
+  margin: 0.5rem 0 0;
+  opacity: 0.85;
+  font-size: 0.95rem;
+}
+
+/* ---- Main Layout ---- */
+.app-main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+/* ---- Upload Section ---- */
+.upload-section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: center;
+  align-items: flex-start;
+  margin-bottom: 2rem;
+}
+
+/* ---- Image Uploader ---- */
+.image-uploader {
+  flex: 1 1 220px;
+  max-width: 300px;
+  min-width: 200px;
+}
+
+.uploader-label {
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  color: #333;
+}
+
+.uploader-zone {
+  border: 2px dashed #ccc;
+  border-radius: 12px;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.2s, background 0.2s;
+  background: #fafafa;
+}
+
+.uploader-zone:hover {
+  border-color: #667eea;
+  background: #f0f0ff;
+}
+
+.uploader-zone.dragging {
+  border-color: #764ba2;
+  background: #e8e0ff;
+}
+
+.uploader-zone.has-image {
+  border-style: solid;
+  border-color: #667eea;
+}
+
+.uploader-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.uploader-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  color: #999;
+  font-size: 0.85rem;
+}
+
+.uploader-icon {
+  font-size: 2rem;
+}
+
+/* ---- Category Selector ---- */
+.category-selector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  justify-content: center;
+  min-width: 100px;
+}
+
+.category-selector label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.category-selector select {
+  padding: 0.5rem 1rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: white;
+  cursor: pointer;
+}
+
+/* ---- Try On Button ---- */
+.tryon-btn {
+  display: block;
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 0.9rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: white;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.tryon-btn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.tryon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- Result Section ---- */
+.result-section {
+  text-align: center;
+  padding: 2rem 1rem;
+  border-radius: 16px;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.result-idle {
+  background: #f9f9f9;
+  color: #999;
+}
+
+.result-loading {
+  background: #f0f0ff;
+  color: #667eea;
+}
+
+.result-failed {
+  background: #fff0f0;
+  color: #e74c3c;
+}
+
+.result-completed {
+  background: #f0fff4;
+}
+
+.result-icon {
+  font-size: 3rem;
+  margin-bottom: 0.5rem;
+}
+
+.result-placeholder p {
+  margin: 0.5rem 0;
+  color: #999;
+}
+
+/* ---- Loading Spinner ---- */
+.loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid #e0e0ff;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 1rem;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-hint {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.error-message {
+  font-size: 0.85rem;
+  color: #c0392b;
+  max-width: 400px;
+}
+
+/* ---- Result Comparison ---- */
+.result-comparison {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.comparison-item {
+  flex: 1 1 180px;
+  max-width: 280px;
+  min-width: 160px;
+}
+
+.comparison-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #555;
+  margin: 0 0 0.3rem;
+}
+
+.comparison-item img {
+  width: 100%;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.result-highlight {
+  border: 2px solid #667eea;
+  border-radius: 10px;
+  padding: 0.3rem;
+}
+
+.result-highlight .comparison-label {
+  color: #667eea;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 640px) {
+  .app-header h1 {
+    font-size: 1.3rem;
+  }
+
+  .upload-section {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .image-uploader {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .comparison-item {
+    max-width: 100%;
+    width: 100%;
+  }
+}

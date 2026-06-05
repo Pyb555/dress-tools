@@ -22,3 +22,12 @@ Thumbs.db
 dist/
 build/
 *.log
+
+# Uploads & Results (generated at runtime)
+backend/uploads/*
+backend/results/*
+!backend/uploads/.gitkeep
+!backend/results/.gitkeep
+
+# Claude local settings
+.claude/settings.local.json
