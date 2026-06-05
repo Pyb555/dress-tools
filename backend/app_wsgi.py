@@ -1,103 +1,133 @@
 """
-Flask 版本 - 用于 PythonAnywhere 免费部署
-与 FastAPI 版本共享相同的 services/ 层
+Flask 版本 - PythonAnywhere 免费部署
 """
 import os
-import json
 import sys
+import json
+import logging
 from datetime import datetime
-from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS
-from dotenv import load_dotenv
 
-# 加载 .env
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+# ==== 路径设置 ====
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE_DIR)
 
-# 确保路径可用
-sys.path.insert(0, os.path.dirname(__file__))
+# ==== 加载环境变量 ====
+# 优先从 .env 文件，失败则用系统环境变量
+def _load_env():
+    env_file = os.path.join(BASE_DIR, ".env")
+    if os.path.exists(env_file):
+        for line in open(env_file):
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
 
-from app.utils.image_utils import ensure_dirs, generate_filename, validate_image, get_image_info
-from app.services.tryon_engine import get_tryon_engine
+_load_env()
 
-BASE_DIR = os.path.dirname(__file__)
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
 HISTORY_FILE = os.path.join(BASE_DIR, "history.json")
-ensure_dirs([UPLOAD_DIR, RESULTS_DIR])
+
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+from flask import Flask, request, jsonify, send_from_directory
 
 app = Flask(__name__)
-CORS(app)
 
-# ============ 健康检查 ============
+# 尝试加载 CORS（如果未安装则跳过）
+try:
+    from flask_cors import CORS
+    CORS(app)
+except ImportError:
+    pass
+
+app.logger.setLevel(logging.INFO)
+
+# ==== 工具函数 ====
+import uuid
+
+def _gen_filename(original):
+    ext = original.rsplit(".", 1)[-1].lower() if "." in original else "png"
+    return f"{uuid.uuid4().hex}.{ext}"
+
+def _validate_image(filepath):
+    try:
+        from PIL import Image
+        with Image.open(filepath) as img:
+            img.verify()
+        return os.path.getsize(filepath) / (1024*1024) <= 10
+    except Exception:
+        return False
+
+def _load_history():
+    if not os.path.exists(HISTORY_FILE):
+        return []
+    try:
+        with open(HISTORY_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def _save_to_history(record):
+    history = _load_history()
+    history.insert(0, record)
+    with open(HISTORY_FILE, "w") as f:
+        json.dump(history[:50], f, ensure_ascii=False, indent=2)
+
+# ==== 路由 ====
+
+@app.route("/")
+def root():
+    return jsonify({"service": "dress-tools", "status": "running"})
+
 @app.route("/api/health")
 def health():
     return jsonify({"status": "ok", "service": "dress-tools"})
 
-
-@app.route("/")
-def root():
-    return jsonify({"message": "Dress Tools API", "docs": "https://github.com/Pyb555/dress-tools"})
-
-
-# ============ 图片上传 ============
 @app.route("/api/images/upload", methods=["POST"])
 def upload_image():
     if "file" not in request.files:
-        return jsonify({"detail": "请上传图片文件"}), 400
-
+        return jsonify({"detail": "请上传图片"}), 400
     file = request.files["file"]
-    if not file.filename:
-        return jsonify({"detail": "文件名为空"}), 400
-
-    filename = generate_filename(file.filename)
+    filename = _gen_filename(file.filename or "img.png")
     filepath = os.path.join(UPLOAD_DIR, filename)
     file.save(filepath)
-
-    if not validate_image(filepath):
+    if not _validate_image(filepath):
         os.remove(filepath)
-        return jsonify({"detail": "无效图片或文件过大（最大10MB）"}), 400
-
-    info = get_image_info(filepath)
+        return jsonify({"detail": "无效图片或过大"}), 400
     return jsonify({
         "filename": filename,
         "url": f"/uploads/{filename}",
-        "width": info["width"],
-        "height": info["height"],
         "size": os.path.getsize(filepath),
     })
 
-
-# ============ 虚拟试穿 ============
 @app.route("/api/tryon/run", methods=["POST"])
 def run_tryon():
-    data = request.get_json()
-    if not data:
-        return jsonify({"detail": "请求体为空"}), 400
-
-    clothing_image = data.get("clothing_image")
-    model_image = data.get("model_image")
+    data = request.get_json(force=True, silent=True) or {}
+    clothing = data.get("clothing_image", "")
+    model = data.get("model_image", "")
     category = data.get("category", "upper_body")
 
-    clothing_path = os.path.join(UPLOAD_DIR, clothing_image)
-    model_path = os.path.join(UPLOAD_DIR, model_image)
-
-    if not os.path.exists(clothing_path):
+    cp = os.path.join(UPLOAD_DIR, clothing)
+    mp = os.path.join(UPLOAD_DIR, model)
+    if not os.path.exists(cp):
         return jsonify({"detail": "衣服图片不存在"}), 404
-    if not os.path.exists(model_path):
+    if not os.path.exists(mp):
         return jsonify({"detail": "模特图片不存在"}), 404
 
     try:
         import asyncio
+        from app.services.tryon_engine import get_tryon_engine
         engine = get_tryon_engine()
-        result = asyncio.run(engine.run(clothing_path, model_path, category))
+        result = asyncio.run(engine.run(cp, mp, category))
 
-        # 保存到历史
         if result.status == "completed":
             _save_to_history({
                 "id": result.task_id,
                 "date": datetime.now().isoformat(),
-                "clothing_image": clothing_image,
-                "model_image": model_image,
+                "clothing_image": clothing,
+                "model_image": model,
                 "result_image": result.result_image,
                 "category": category,
                 "status": "completed",
@@ -110,42 +140,19 @@ def run_tryon():
             "message": result.message,
         })
     except Exception as e:
+        app.logger.error(f"TryOn error: {e}")
         return jsonify({"detail": f"试穿失败: {str(e)}"}), 500
-
-
-# ============ 历史记录 ============
-def _load_history():
-    if not os.path.exists(HISTORY_FILE):
-        return []
-    try:
-        with open(HISTORY_FILE, "r") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return []
-
-
-def _save_to_history(record):
-    history = _load_history()
-    history.insert(0, record)
-    history = history[:50]
-    with open(HISTORY_FILE, "w") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
-
 
 @app.route("/api/history/list")
 def list_history():
-    history = _load_history()
-    return jsonify({"total": len(history), "items": history[:20]})
-
+    return jsonify({"total": len(_load_history()), "items": _load_history()[:20]})
 
 @app.route("/api/history/<record_id>", methods=["DELETE"])
 def delete_record(record_id):
-    history = _load_history()
-    history = [h for h in history if h.get("id") != record_id]
+    history = [h for h in _load_history() if h.get("id") != record_id]
     with open(HISTORY_FILE, "w") as f:
-        json.dump(history, f, ensure_ascii=False, indent=2)
+        json.dump(history, f)
     return jsonify({"status": "ok"})
-
 
 @app.route("/api/history/clear", methods=["DELETE"])
 def clear_history():
@@ -153,13 +160,10 @@ def clear_history():
         json.dump([], f)
     return jsonify({"status": "ok"})
 
-
-# ============ 静态文件 ============
 @app.route("/uploads/<filename>")
-def uploaded_file(filename):
+def serve_upload(filename):
     return send_from_directory(UPLOAD_DIR, filename)
 
-
 @app.route("/results/<filename>")
-def result_file(filename):
+def serve_result(filename):
     return send_from_directory(RESULTS_DIR, filename)
