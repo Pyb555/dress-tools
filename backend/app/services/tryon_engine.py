@@ -85,7 +85,7 @@ def get_tryon_engine(engine_type: Optional[str] = None) -> TryOnProvider:
     """获取 AI 试穿引擎实例（单例模式）
 
     Args:
-        engine_type: "mock" | "fashn" | "ootd"，为空时读取环境变量 TRYON_ENGINE
+        engine_type: "mock" | "fashn" | "ootd" | "dashscope"，为空时读取环境变量 TRYON_ENGINE
 
     Returns:
         TryOnProvider 实例
@@ -106,6 +106,9 @@ def get_tryon_engine(engine_type: Optional[str] = None) -> TryOnProvider:
     elif engine_type == "ootd":
         from .ootd_provider import OOTDProvider
         _engine = OOTDProvider()
+    elif engine_type == "dashscope":
+        from .dashscope_provider import DashScopeProvider
+        _engine = DashScopeProvider()
     else:
         _engine = MockProvider()
 
