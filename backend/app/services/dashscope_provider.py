@@ -1,45 +1,37 @@
 """
 阿里云百炼 DashScope AI 试穿 Provider
 
-- 免费额度: 400 张
-- 价格: 0.50 元/张（超出免费额度）
-- 模型: aitryon-plus
-- 图片需使用公开 URL（不能 base64）
+两步异步模式（适配 PythonAnywhere 超时限制）:
+  1. submit() → 提交到 DashScope，返回 ds_task_id
+  2. poll()  → 查询状态，完成后下载结果
 """
 import os
-import asyncio
+import json
 from typing import Optional
 import httpx
-import uuid
-from .tryon_engine import TryOnProvider, TryOnResult
 
 
-class DashScopeProvider(TryOnProvider):
-    """阿里云百炼 AI 试穿引擎"""
+class DashScopeProvider:
+    """阿里云百炼 AI 试穿引擎（两步异步）"""
 
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
         self.api_key = api_key or os.getenv("DASHSCOPE_API_KEY", "")
-        # 图片的基础 URL（上传后对外可访问的地址）
         self.base_url = base_url or os.getenv("IMAGE_BASE_URL", "http://localhost:8000")
 
-    async def run(self, clothing_path: str, model_path: str, category: str = "upper_body") -> TryOnResult:
-        task_id = uuid.uuid4().hex[:12]
-
+    def submit(self, clothing_path: str, model_path: str, category: str = "upper_body") -> dict:
+        """
+        提交试穿任务到 DashScope，立即返回
+        Returns: {"ok": True, "ds_task_id": "xxx"} or {"ok": False, "error": "..."}
+        """
         if not self.api_key:
-            return TryOnResult(
-                task_id=task_id,
-                status="failed",
-                message="阿里云 DashScope API Key 未配置。请设置 DASHSCOPE_API_KEY。",
-            )
+            return {"ok": False, "error": "DashScope API Key 未配置"}
 
         try:
-            # 构建图片公开 URL
             clothing_filename = os.path.basename(clothing_path)
             model_filename = os.path.basename(model_path)
             clothing_url = f"{self.base_url}/uploads/{clothing_filename}"
             model_url = f"{self.base_url}/uploads/{model_filename}"
 
-            # 构建请求体
             inputs = {"person_image_url": model_url}
             if category in ("dresses", "one-pieces"):
                 inputs["top_garment_url"] = clothing_url
@@ -48,17 +40,13 @@ class DashScopeProvider(TryOnProvider):
             else:
                 inputs["top_garment_url"] = clothing_url
 
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                # Step 1: 提交任务
-                submit_res = await client.post(
+            with httpx.Client(timeout=30) as client:
+                res = client.post(
                     "https://dashscope.aliyuncs.com/api/v1/services/aigc/image2image/image-synthesis",
                     json={
                         "model": "aitryon-plus",
                         "input": inputs,
-                        "parameters": {
-                            "resolution": -1,      # 保持原始分辨率
-                            "restore_face": True,   # 保留脸部
-                        },
+                        "parameters": {"resolution": -1, "restore_face": True},
                     },
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
@@ -66,34 +54,14 @@ class DashScopeProvider(TryOnProvider):
                         "X-DashScope-Async": "enable",
                     },
                 )
-                submit_res.raise_for_status()
-                submit_data = submit_res.json()
+                res.raise_for_status()
+                data = res.json()
 
-                dashscope_task_id = submit_data.get("output", {}).get("task_id")
-                if not dashscope_task_id:
-                    return TryOnResult(
-                        task_id=task_id,
-                        status="failed",
-                        message=f"DashScope 返回异常: {submit_data}",
-                    )
+            ds_task_id = data.get("output", {}).get("task_id")
+            if not ds_task_id:
+                return {"ok": False, "error": f"DashScope 返回异常: {data}"}
 
-                # Step 2: 轮询等待结果
-                result_url = await self._poll_task(client, dashscope_task_id)
-
-                if not result_url:
-                    return TryOnResult(
-                        task_id=task_id,
-                        status="failed",
-                        message="DashScope 处理超时或失败",
-                    )
-
-                # Step 3: 下载结果
-                result_filename = await self._download_result(result_url, task_id)
-                return TryOnResult(
-                    task_id=task_id,
-                    status="completed",
-                    result_image=result_filename,
-                )
+            return {"ok": True, "ds_task_id": ds_task_id}
 
         except httpx.HTTPStatusError as e:
             detail = ""
@@ -101,49 +69,51 @@ class DashScopeProvider(TryOnProvider):
                 detail = e.response.json()
             except Exception:
                 detail = e.response.text
-            return TryOnResult(
-                task_id=task_id,
-                status="failed",
-                message=f"DashScope 错误 ({e.response.status_code}): {detail}",
-            )
+            return {"ok": False, "error": f"DashScope 错误 ({e.response.status_code}): {detail}"}
         except Exception as e:
-            return TryOnResult(
-                task_id=task_id,
-                status="failed",
-                message=f"处理失败: {str(e)}",
-            )
+            return {"ok": False, "error": str(e)}
 
-    async def _poll_task(self, client: httpx.AsyncClient, ds_task_id: str, max_retries: int = 30) -> Optional[str]:
-        """轮询 DashScope 任务结果"""
-        poll_url = f"https://dashscope.aliyuncs.com/api/v1/tasks/{ds_task_id}"
-        for _ in range(max_retries):
-            await asyncio.sleep(3)
-            response = await client.get(
-                poll_url,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-            )
-            response.raise_for_status()
-            data = response.json()
+    def poll(self, ds_task_id: str) -> dict:
+        """
+        查询 DashScope 任务状态，完成时下载结果
+        Returns: {"status": "PENDING"|"SUCCEEDED"|"FAILED", "result_image": "xxx.png", "error": "..."}
+        """
+        try:
+            with httpx.Client(timeout=15) as client:
+                res = client.get(
+                    f"https://dashscope.aliyuncs.com/api/v1/tasks/{ds_task_id}",
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+                res.raise_for_status()
+                data = res.json()
+
             status = data.get("output", {}).get("task_status")
-
             if status == "SUCCEEDED":
-                return data.get("output", {}).get("image_url")
+                result_url = data.get("output", {}).get("image_url")
+                if result_url:
+                    result_filename = self._download(result_url, ds_task_id)
+                    return {"status": "SUCCEEDED", "result_image": result_filename}
+                return {"status": "FAILED", "error": "无结果图片"}
             elif status == "FAILED":
-                return None
-        return None
+                return {"status": "FAILED", "error": str(data.get("output", {}))}
+            else:
+                return {"status": status or "PENDING"}
 
-    async def _download_result(self, url: str, task_id: str) -> str:
-        """下载结果图片到本地"""
+        except Exception as e:
+            return {"status": "FAILED", "error": str(e)}
+
+    def _download(self, url: str, ds_task_id: str) -> str:
+        """下载结果图片到本地，返回文件名"""
         results_dir = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "results"
         )
-        result_filename = f"result_{task_id}.png"
-        result_path = os.path.join(results_dir, result_filename)
+        filename = f"result_{ds_task_id[:12]}.png"
+        filepath = os.path.join(results_dir, filename)
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            with open(result_path, "wb") as f:
-                f.write(response.content)
+        with httpx.Client(timeout=30) as client:
+            res = client.get(url)
+            res.raise_for_status()
+            with open(filepath, "wb") as f:
+                f.write(res.content)
 
-        return result_filename
+        return filename

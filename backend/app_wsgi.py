@@ -27,6 +27,7 @@ _load_env()
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
 HISTORY_FILE = os.path.join(BASE_DIR, "history.json")
+TASKS_FILE = os.path.join(BASE_DIR, "tasks.json")
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -75,6 +76,30 @@ def _save_to_history(record):
     with open(HISTORY_FILE, "w") as f:
         json.dump(history[:50], f, ensure_ascii=False, indent=2)
 
+# ==== 任务状态管理（DashScope 异步模式）====
+
+def _load_tasks():
+    if not os.path.exists(TASKS_FILE):
+        return []
+    try:
+        with open(TASKS_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def _save_task(task):
+    tasks = _load_tasks()
+    # 去重
+    tasks = [t for t in tasks if t.get("task_id") != task["task_id"]]
+    tasks.insert(0, task)
+    with open(TASKS_FILE, "w") as f:
+        json.dump(tasks[:100], f, ensure_ascii=False, indent=2)
+
+def _remove_task(task_id):
+    tasks = [t for t in _load_tasks() if t.get("task_id") != task_id]
+    with open(TASKS_FILE, "w") as f:
+        json.dump(tasks, f, ensure_ascii=False, indent=2)
+
 # ==== 路由 ====
 
 @app.route("/")
@@ -104,6 +129,7 @@ def upload_image():
 
 @app.route("/api/tryon/run", methods=["POST"])
 def run_tryon():
+    """提交试穿任务（异步，立即返回 task_id）"""
     data = request.get_json(force=True, silent=True) or {}
     clothing = data.get("clothing_image", "")
     model = data.get("model_image", "")
@@ -117,31 +143,106 @@ def run_tryon():
         return jsonify({"detail": "模特图片不存在"}), 404
 
     try:
-        import asyncio
-        from app.services.tryon_engine import get_tryon_engine
-        engine = get_tryon_engine()
-        result = asyncio.run(engine.run(cp, mp, category))
+        engine_type = os.getenv("TRYON_ENGINE", "mock")
 
-        if result.status == "completed":
-            _save_to_history({
-                "id": result.task_id,
-                "date": datetime.now().isoformat(),
-                "clothing_image": clothing,
-                "model_image": model,
+        if engine_type == "dashscope":
+            from app.services.dashscope_provider import DashScopeProvider
+            engine = DashScopeProvider()
+            result = engine.submit(cp, mp, category)
+
+            if result.get("ok"):
+                ds_task_id = result["ds_task_id"]
+                task_id = ds_task_id[:12]
+
+                # 保存任务映射
+                _save_task({
+                    "task_id": task_id,
+                    "ds_task_id": ds_task_id,
+                    "clothing_image": clothing,
+                    "model_image": model,
+                    "category": category,
+                    "date": datetime.now().isoformat(),
+                })
+
+                return jsonify({
+                    "task_id": task_id,
+                    "status": "processing",
+                    "message": "任务已提交，请轮询状态",
+                })
+            else:
+                return jsonify({
+                    "task_id": "",
+                    "status": "failed",
+                    "message": result.get("error", "提交失败"),
+                })
+        else:
+            # Mock / 其他引擎：同步处理
+            import asyncio
+            from app.services.tryon_engine import get_tryon_engine
+            engine = get_tryon_engine()
+            result = asyncio.run(engine.run(cp, mp, category))
+            return jsonify({
+                "task_id": result.task_id,
+                "status": result.status,
                 "result_image": result.result_image,
-                "category": category,
-                "status": "completed",
+                "message": result.message,
             })
-
-        return jsonify({
-            "task_id": result.task_id,
-            "status": result.status,
-            "result_image": result.result_image,
-            "message": result.message,
-        })
     except Exception as e:
         app.logger.error(f"TryOn error: {e}")
         return jsonify({"detail": f"试穿失败: {str(e)}"}), 500
+
+
+@app.route("/api/tryon/status/<task_id>")
+def check_status(task_id):
+    """查询试穿任务状态"""
+    tasks = _load_tasks()
+    task = next((t for t in tasks if t.get("task_id") == task_id), None)
+
+    if not task:
+        return jsonify({"status": "not_found", "message": "任务不存在"})
+
+    engine_type = os.getenv("TRYON_ENGINE", "mock")
+
+    if engine_type == "dashscope":
+        from app.services.dashscope_provider import DashScopeProvider
+        engine = DashScopeProvider()
+        result = engine.poll(task["ds_task_id"])
+
+        if result["status"] == "SUCCEEDED":
+            # 保存到历史
+            _save_to_history({
+                "id": task_id,
+                "date": task.get("date", datetime.now().isoformat()),
+                "clothing_image": task["clothing_image"],
+                "model_image": task["model_image"],
+                "result_image": result["result_image"],
+                "category": task.get("category", "upper_body"),
+                "status": "completed",
+            })
+            # 清理任务记录
+            _remove_task(task_id)
+
+            return jsonify({
+                "task_id": task_id,
+                "status": "completed",
+                "result_image": result["result_image"],
+                "message": "试穿完成",
+            })
+        elif result["status"] == "FAILED":
+            _remove_task(task_id)
+            return jsonify({
+                "task_id": task_id,
+                "status": "failed",
+                "message": result.get("error", "处理失败"),
+            })
+        else:
+            return jsonify({
+                "task_id": task_id,
+                "status": "processing",
+                "message": f"AI 处理中... ({result['status']})",
+            })
+
+    return jsonify({"status": "completed", "result_image": task.get("result_image")})
 
 @app.route("/api/history/list")
 def list_history():
