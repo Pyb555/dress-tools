@@ -129,7 +129,12 @@ export default function HomePage() {
     try {
       const clothingRes = await uploadImage(clothingFile);
       const modelRes = await uploadImage(modelFile);
-      const result = await runTryOn(clothingRes.filename, modelRes.filename, category);
+      const result = await runTryOn(
+        clothingRes.filename,
+        modelRes.filename,
+        category,
+        (progressMsg) => setMessage(progressMsg)
+      );
 
       if (result.status === "completed" && result.result_image) {
         setResultUrl(getImageUrl(`/results/${result.result_image}`));
